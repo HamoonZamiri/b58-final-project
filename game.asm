@@ -56,7 +56,11 @@
 # initialization section
 main:
 	li $t0, BASE_ADDRESS # $t0 stores the base address for display
-	
+	# initialize x and y coordinates
+	# s4 -> x coordinate of main char
+	# s5 -> y coordinate of main char
+	li $s4, 0
+	li $s5, 5
 	
 #####################################################################
 	# clear the screen before beginning
@@ -110,27 +114,37 @@ main:
 	
 	# draw three platforms
 	# store the base addresses in $s1 $s2 and $s3
-	la $s1, 1536($s0)
-	la $s2 128($s1)
-	la $s3 240($s1)
+	la $s1, 2560($t0) 
 	
+	la $s2 80($t0)
+	addi $s2, $s2, 10752 # move platform 2 34 units lower (256 * 34)
 	
-	sw $t1, 0($s1)
-	sw $t1, 4($s1)
-	sw $t1, 8($s1)
-	sw $t1, 12($s1)
+	la $s3 192($t0) # trying to touch corner with 16 length, 256 - 16 * 4
+	addi $s3, $s3, 2560 # match height of platform 1
 	
-	# colour second platform (5 pixels wide)
-	sw $t1, 0($s2)
-	sw $t1, 4($s2)
-	sw $t1, 8($s2)
-	sw $t1, 12($s2)
+	li $t2, 0 # create loop to draw platforms
+	la $t3, 0($s1)
+	draw_p1: # loop to draw platform with length 60/4 = 15 + 1
+		sw $t1, 0($t3)
+		addi $t3, $t3, 4
+		addi $t2, $t2, 4
+		ble $t2, 60, draw_p1 # platform length is 16 right now
 	
-	# colour second platform (5 pixels wide)
-	sw $t1, 0($s3)
-	sw $t1, 4($s3)
-	sw $t1, 8($s3)
-	sw $t1, 12($s3)
+	li $t2, 0 # loop counter variable
+	la $t3, 0($s2) # load base addr of platform 2
+	draw_p2:
+		sw $t1, 0($t3)
+		addi $t3, $t3, 4
+		addi $t2, $t2, 4
+		ble $t2, 140, draw_p2 # platform length is 36 right now
+	
+	li $t2, 0 # loop counter variable
+	la $t3, 0($s3) # load base addr of platform 2
+	draw_p3:
+		sw $t1, 0($t3)
+		addi $t3, $t3, 4
+		addi $t2, $t2, 4
+		ble $t2, 60, draw_p3 # platform length is 16 right now
 	
 	# draw a spike 
     	la $a0, BASE_ADDRESS
@@ -142,12 +156,17 @@ main:
 #####################################################################
 # main game loop section
 game_loop:
+	li $v0, 32
+	li $a0, 100 # Wait 500ms
+	syscall
+	j handle_move_down
 	# check for keypress
+post_gravity:	
 	li $t8, 0
 	li $t9, 0xffff0000
 	lw $t8, 0($t9)
 	andi $t8, $t8, 0x01
-	beqz $t8, game_loop # if t8 has a 1 a key was pressed
+	beqz $t8, game_loop 
 	
 	
 #####################################################################
@@ -159,11 +178,12 @@ key_pressed:
 	beq $t2, 112, main # currently when pressing p program does not wait for new key press and keeps looping on main
 	beq $t2, 100, handle_move_right # when player presses d main character moves to the right
 	beq $t2, 97, handle_move_left
+	beq $t2, 119, handle_move_up
 	j game_loop
 
 draw_spike: # draws a spike at address thats found in a0
 	la $t0, ($a0)
-	li $t1, 0x0e706070
+	li $t1, 0x0e706070 # grey colour
 	sw $t1, 0($t0) # first pixel left corner
     	sw $t1, 8($t0) # top right corner
     	sw $t1, 260($t0) # centre
@@ -172,59 +192,142 @@ draw_spike: # draws a spike at address thats found in a0
 	jr $ra
 	
 handle_move_right:
-	la $t0, 0($s0) # prev address of main character
-	la $t2, clear_col # load colour black into t1
-	lw $t2, 0($t2)
+	#####################################################################
+	# check condition for if x ($s4) is at 61 do not move right
+	bge $s4, 61, game_loop
+	#####################################################################
 	
-	# draw black over previous location
-	sw $t2, 0($t0)
-	sw $t2, 256($t0) # colour vertically
-	sw $t2, 512($t0)
-	sw $t2, 768($t0)
-	
-	addi $t0, $t0, 4 # do the same one pixel to the right
-	sw $t2, 0($t0)
-	sw $t2, 256($t0) # colour vertically
-	sw $t2, 512($t0)
-	sw $t2, 768($t0)
-	
-	addi $t0, $t0, 4 # do the same one pixel to the right
-	sw $t2, 0($t0)
-	sw $t2, 256($t0) # colour vertically
-	sw $t2, 512($t0)
-	sw $t2, 768($t0)
+	jal black_out_main_char
 	
 	# swtich colour in t2 back to green and draw character 4 units to the right
 	addi $s0, $s0, 4 # shift one pixel right
-	la $t0, 0($s0)
-	la $t2, main_char_col
-	lw, $t2, 0($t2)
-	
-	# redraw character 1 unit to the right
-	sw $t2, 0($t0)
-	sw $t2, 256($t0) # colour vertically
-	sw $t2, 512($t0)
-	sw $t2, 768($t0)
-	
-	addi $t0, $t0, 4 # do the same one pixel to the right
-	sw $t2, 0($t0)
-	sw $t2, 256($t0) # colour vertically
-	sw $t2, 512($t0)
-	sw $t2, 768($t0)
-	
-	addi $t0, $t0, 4 # do the same one pixel to the right
-	sw $t2, 0($t0)
-	sw $t2, 256($t0) # colour vertically
-	sw $t2, 512($t0)
-	sw $t2, 768($t0)
+	addi $s4, $s4, 1 # shift x coordinate 1 unit to the right
+	jal draw_main_char
 	j game_loop
 
 # very similar to handle move right except we go backwards by one unit	
 handle_move_left:
+	#####################################################################
+	# check condition if x coordinate is at 0 cannot move left
+	beq $s4, 0, game_loop
+	#####################################################################
+	
+	jal black_out_main_char
+	#####################################################################
+	
+	#####################################################################
+	# swtich colour in t2 back to green and draw character 4 units to the right
+	addi $s0, $s0, -4 # shift one unit left
+	addi $s4, $s4, -1 # shift x coordinate one unit left
+	jal draw_main_char
+	j game_loop
+	#####################################################################
+
+
+handle_move_up:
+	#####################################################################
+	# check condition if y coordinate is at 0 cannot move up
+	ble $s5, 0, game_loop
+	ble $s5, 1, game_loop
+	#####################################################################
+	jal black_out_main_char
+	
+	#####################################################################
+	# swtich colour in t2 back to green and draw character 4 units to the right
+	addi $s0, $s0, -512 # shift base pixel two units up
+	addi $s5, $s5, -2 # shift y coordinate two units up
+	jal draw_main_char
+	
+	j game_loop
+	#####################################################################
+	
+	
+	#####################################################################
+handle_move_down: # simulate gravity
+	# check condition if y coordinate is at 64 cannot move down
+	bge $s5, 60, end_down
+	
+	# check if there are platform collisions
+	jal check_platform_collision
+	beq $v0, 1, end_down
+	#####################################################################
+	
+	jal black_out_main_char # call black_out function
+	#####################################################################
+	
+	# swtich colour in t2 back to green and draw character 4 units to the down
+	addi $s0, $s0, 256 # shift one unit down
+	addi $s5, $s5, 1 # shift y coordinate one unit down
+	jal draw_main_char # after shifting s0 redraw main character in function
+	
+	end_down:
+		j post_gravity
+	#####################################################################
+
+check_platform_collision:
+	la $t0, 768($s0) # addr of main character
+	la $t1, -256($s1) # load address of first platform
+	li $t2, 0
+	collision_loop1: # loop for first platform to check collisions
+		beq $t0, $t1, collided # if leftmost main character pixel is on top of platform pixel collision detected
+		addi $t1, $t1, 4 # move platform pixel one unit right
+		addi, $t2, $t2, 1 # increment loop counter by 1
+		ble $t2, 15, collision_loop1
+	
+	la $t1, -256($s2)
+	li $t2, 0
+	
+	collision_loop2: # loop for second platform to check collisions
+		beq $t0, $t1, collided # if leftmost main character pixel is on top of platform pixel collision detected
+		addi $t1, $t1, 4 # move platform pixel one unit right
+		addi, $t2, $t2, 1 # increment loop counter by 1
+		ble $t2, 35, collision_loop2 # platform 2 is currently 36 units large
+	
+	la $t1, -256($s3)
+	li $t2, 0
+	
+	collision_loop3: # loop for third platform to check collisions
+		beq $t0, $t1, collided # if leftmost main character pixel is on top of platform pixel collision detected
+		addi $t1, $t1, 4 # move platform pixel one unit right
+		addi, $t2, $t2, 1 # increment loop counter by 1
+		ble $t2, 15, collision_loop3
+	
+	li $v0, 0
+	jr $ra
+	collided:
+		li $v0, 1
+		jr $ra
+		
+draw_main_char:
+	la $t0, 0($s0)
+	la $t2, main_char_col
+	lw, $t2, 0($t2)
+	
+	# redraw character
+	sw $t2, 0($t0)
+	sw $t2, 256($t0) # colour vertically
+	sw $t2, 512($t0)
+	sw $t2, 768($t0)
+	
+	addi $t0, $t0, 4 # do the same one pixel to the right
+	sw $t2, 0($t0)
+	sw $t2, 256($t0) # colour vertically
+	sw $t2, 512($t0)
+	sw $t2, 768($t0)
+	
+	addi $t0, $t0, 4 # do the same one pixel to the right
+	sw $t2, 0($t0)
+	sw $t2, 256($t0) # colour vertically
+	sw $t2, 512($t0)
+	sw $t2, 768($t0)
+	jr $ra
+	
+black_out_main_char:
 	la $t0, 0($s0) # prev address of main character
-	la $t2, clear_col # load colour black into t1
+	la $t2, clear_col # load colour black into t2
 	lw $t2, 0($t2)
 	
+	#####################################################################
 	# draw black over previous location
 	sw $t2, 0($t0)
 	sw $t2, 256($t0) # colour vertically
@@ -243,30 +346,7 @@ handle_move_left:
 	sw $t2, 512($t0)
 	sw $t2, 768($t0)
 	
-	# swtich colour in t2 back to green and draw character 4 units to the right
-	addi $s0, $s0, -4 # shift one pixel left
-	la $t0, 0($s0)
-	la $t2, main_char_col
-	lw, $t2, 0($t2)
-	
-	# redraw character 1 unit to the left
-	sw $t2, 0($t0)
-	sw $t2, 256($t0) # colour vertically
-	sw $t2, 512($t0)
-	sw $t2, 768($t0)
-	
-	addi $t0, $t0, 4 # do the same one pixel to the right
-	sw $t2, 0($t0)
-	sw $t2, 256($t0) # colour vertically
-	sw $t2, 512($t0)
-	sw $t2, 768($t0)
-	
-	addi $t0, $t0, 4 # do the same one pixel to the right
-	sw $t2, 0($t0)
-	sw $t2, 256($t0) # colour vertically
-	sw $t2, 512($t0)
-	sw $t2, 768($t0)
-	j game_loop
+	jr $ra
 END:	
 	li $v0, 10
 	syscall
