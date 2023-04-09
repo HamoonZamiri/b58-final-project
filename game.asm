@@ -51,6 +51,10 @@
 	brown_col: .word 0xeaddca
 	main_char_col: .word 0x00ff00
 	heart_pattern: .word 0x0e706070, 0x1f70f070, 0x3ff8f8f8 # heart pattern in 3x3 pixels
+	stars: .space 12 # stores the addresses of the stars
+	score: .word 0 # stores the current number of stars that have been collected
+	star2_dir: .word 0 # 0 for left and 1 for right
+	star2_indicator: .word 0
 .text
 
 #####################################################################
@@ -121,8 +125,9 @@ main:
     	la $a0, BASE_ADDRESS
     	addi $a0, $a0, 15360 # draw spike 3 levels higher than floor
     	jal draw_spike
-    	li $a2, 1 # tell spike to move right first
-    	
+    	li $a2, 1 # tell spike to move right first	
+	
+    	# draw ropes that you can climb
     	jal draw_ropes
     	
     	# draw the floor
@@ -134,6 +139,9 @@ main:
     		sw $t1, 0($t2) # store grey into pixel on bottom row
     		addi $t2, $t2, 4 # move one unit right
     		ble $t2, $t3, draw_floor_loop
+    	
+    	# draw the stars
+    	jal draw_stars
 #####################################################################
 # main game loop section
 game_loop:
@@ -141,6 +149,13 @@ game_loop:
 	li $a0, 100 # Wait 500ms
 	syscall
 	
+	# draw the current score
+	jal draw_score
+	
+	jal check_spike_collision
+	beq $v0, 1, END
+	
+	#####################################################################
 	# handle spike movement
 	# 16384 from base is last pixel
 	jal blackout_spike # blackout spike first
@@ -179,9 +194,65 @@ game_loop:
 	 		li $a2, 0
 	 		la $a0, ($a1) # load arg for draw_spike
 	 		jal draw_spike
-	#####################################################################
-	
 after_spike:	
+	#####################################################################
+	# handle moving star 2
+	# furthest right is 15352(base)
+	
+	# if indicator is 1 star has already been collected
+	lw $t0, star2_indicator
+	beq $t0, 1, after_star
+	
+	jal blackout_star2
+	lw $t0, star2_dir
+	beq $t0, 1, move_star_right
+	
+	# star needs to move left
+	la $t1, stars
+	
+	lw $t2, 4($t1) # use t2 to change t1
+	addi $t2, $t2, -4
+	
+	li $t0, BASE_ADDRESS
+	addi $t3, $t0, 15100 # leftmost pixel 3 units above ground
+	ble $t2, $t3, change_stardir_toright
+	sw $t2, 4($t1)
+	jal draw_star2
+	j after_star
+	
+	change_stardir_toright:
+		li $t0, 1
+		addi $t2, $t2, 4		
+		la $t4, star2_dir
+		
+		sw $t0, 0($t4) # change position of star to right
+		sw $t2, 4($t1)
+		
+		jal draw_star2
+		j after_star
+	move_star_right:
+		# star needs to move left
+		li $t0, BASE_ADDRESS
+		la $t1, stars
+		
+		lw $t2, 4($t1) # use t2 to change t1
+		addi $t2, $t2, 4
+		
+		addi $t3, $t0, 15352
+		bge $t2, $t3, change_stardir_toleft
+		sw $t2, 4($t1)
+		jal draw_star2
+		j after_star
+		
+	change_stardir_toleft:
+		li $t0, 0
+		addi $t2, $t2, -4		
+		la $t4, star2_dir
+		sw $t0, 0($t4)
+		
+		sw $t2, 4($t1)
+		jal draw_star2
+after_star:	
 	jal draw_ropes
 	jal draw_platforms
 	j handle_move_down
@@ -205,7 +276,8 @@ key_pressed:
 	beq $t2, 97, handle_move_left
 	beq $t2, 119, handle_move_up
 	j game_loop
-
+	
+#####################################################################
 draw_spike: # draws a spike at address thats found in a0
 	la $t0, ($a0)
 	la $a1, ($a0)
@@ -226,7 +298,31 @@ blackout_spike:
     	sw $t1, 512($t0) # bottom left
     	sw $t1, 520($t0) # bottom right
 	jr $ra
+#####################################################################	
 	
+#####################################################################
+blackout_star2:
+	la $t0, stars
+	lw $t1, 4($t0)
+	li $t2, 0
+	
+	sw $t2, 0($t1) # top left
+	sw $t2, 4($t1) # top right
+	sw $t2, 256($t1)
+	sw $t2 260($t1)
+	jr $ra
+draw_star2:
+	la $t0, stars
+	lw $t1, 4($t0)
+	li $t2, 0xffff00 # colour yellow
+	
+	sw $t2, 0($t1) # top left
+	sw $t2, 4($t1) # top right
+	sw $t2, 256($t1)
+	sw $t2 260($t1)
+	jr $ra
+#####################################################################
+
 handle_move_right:
 	#####################################################################
 	# check condition for if x ($s4) is at 61 do not move right
@@ -240,6 +336,7 @@ handle_move_right:
 	addi $s4, $s4, 1 # shift x coordinate 1 unit to the right
 	
 	#####################################################################
+	jal check_star_collision
 	# check if colliding with a spike now
 	jal check_spike_collision
 	beq $v0, 1, END
@@ -264,6 +361,7 @@ handle_move_left:
 	addi $s4, $s4, -1 # shift x coordinate one unit left
 	
 	#####################################################################
+	jal check_star_collision
 	# check if colliding with a spike now
 	jal check_spike_collision
 	beq $v0, 1, END
@@ -291,6 +389,7 @@ handle_move_up:
 	addi $s5, $s5, -2 # shift y coordinate two units up
 	
 	#####################################################################
+	jal check_star_collision
 	# check if colliding with a spike now
 	jal check_spike_collision
 	beq $v0, 1, END
@@ -323,6 +422,7 @@ handle_move_down: # simulate gravity
 	addi $s5, $s5, 1 # shift y coordinate one unit down
 	
 	#####################################################################
+	jal check_star_collision
 	# check if colliding with a spike now
 	jal check_spike_collision
 	beq $v0, 1, END
@@ -435,7 +535,7 @@ check_platform_collision:
 		jr $ra
 
 check_spike_collision:
-	la $t0, ($a1) # load the top left pixel of the spike
+	la $t0, 0($a1) # load the top left pixel of the spike
 	
 	li $t2, 0 # loop counter
 	
@@ -451,7 +551,7 @@ check_spike_collision:
 		
 		addi $t0, $t0, 4
 		addi $t2, $t2, 1
-		ble $t2, 2, mid_level_loop
+		ble $t2, 3, mid_level_loop
 	
 	la $t0, ($a1) # load the top left pixel of the spike
 	bottom_level_loop:
@@ -609,8 +709,251 @@ clear_screen:
 		addi $t1, $t1, 4
 		ble $t1, $t2 clear_screen_loop
 	jr $ra
+
+draw_stars:
+	la $t0, ($s1) # first start on platform 1
+	addi $t0, $t0, -1024
+	addi $t0, $t0, 56 # draw at the end of the platform
 	
+	li $t1, 0xffff00 # load yellow
+	sw $t1, 0($t0) # top left
+	sw $t1, 4($t0) # top right
+	sw $t1, 256($t0)
+	sw $t1 260($t0)
+	
+	# store star in array called "stars"
+	la $t2, stars # load the address of the first element in the array
+	sw $t0, 0($t2) # store first pixel of star 1 into array stars
+	
+	# draw star on bottom level
+    	la $t0, BASE_ADDRESS
+    	addi $t0, $t0, 15352 # draw at main character height level above ground hard right
+    	
+	sw $t1, 0($t0) # top left
+	sw $t1, 4($t0) # top right
+	sw $t1, 256($t0)
+	sw $t1 260($t0)
+
+    	la $t2, stars
+    	sw $t0, 4($t2) # store pixel as second star in stars array
+    	
+    	
+	
+	# draw star 3
+	la $t0, ($s3)
+	addi $t0, $t0, -1024
+	addi $t0, $t0, 56
+	
+	sw $t1, 0($t0) # top left
+	sw $t1, 4($t0) # top right
+	sw $t1, 256($t0)
+	sw $t1 260($t0)
+	
+	# store address of star 3 in stars
+	sw $t0, 8($t2) # store into third slot in array
+	
+	jr $ra
+	
+randomize_star2:
+	
+	jr $ra
+check_star_collision:
+	la $t0, stars # stars is an array of 3 addresses
+	lw $t0, 0($t0) # load address of star 1
+	
+	li $t2, 0xffff00 # load yellow
+	
+	li $t3, 0 # loop counter
+	star1_loop:
+		la $t1, 0($s0) # load address of main character
+		# check colour
+		lw $t4, 0($t0)
+		bne $t4, $t2, post_star1 # if pixel is not yellow
+		beq $t1, $t0, collision_star1 
+		
+		addi $t1, $t1, 4
+		beq $t1, $t0, collision_star1
+		
+		addi $t1, $t1, 4
+		beq $t1, $t0, collision_star1
+		
+		addi $t0, $t0, 4
+		addi $t3, $t3, 1
+		ble $t3, 1, star1_loop 
+	
+	post_star1: 
+	
+	# star 2
+	la $t0, stars # stars is an array of 3 addresses
+	lw $t0, 4($t0) # load address of star 3
+	li $t3, 0 # loop counter
+	star2_loop:
+		# check colour
+		lw $t4, 0($t0)
+		la $t1, 0($s0) # load address of main character
+		# add temp reg for bottom row
+		addi $t5, $t1, 1024
+		
+		bne $t4, $t2, post_star2 # if pixel is not yellow
+		beq $t1, $t0, collision_star2
+		beq $t5, $t0, collision_star2
+		
+		addi $t1, $t1, 4
+		addi $t5, $t5, 4
+		beq $t1, $t0, collision_star2
+		beq $t5, $t0, collision_star2
+		
+		
+		addi $t1, $t1, 4
+		addi $t5, $t5, 4
+		beq $t1, $t0, collision_star2
+		beq $t5, $t0, collision_star2
+		
+		addi $t0, $t0, 4
+		addi $t3, $t3, 1
+		ble $t3, 1, star2_loop
+	
+	post_star2:
+	la $t0, stars # stars is an array of 3 addresses
+	lw $t0, 8($t0) # load address of star 3
+	li $t3, 0 # loop counter
+
+	star3_loop:
+		la $t1, 0($s0) # load address of main character
+		# check colour
+		lw $t4, 0($t0)
+		bne $t4, $t2, post_star3 # if pixel is not yellow
+		beq $t1, $t0, collision_star3
+		
+		addi $t1, $t1, 4
+		beq $t1, $t0, collision_star3
+		
+		addi $t1, $t1, 4
+		beq $t1, $t0, collision_star3
+		
+		addi $t0, $t0, 4
+		addi $t3, $t3, 1
+		ble $t3, 1, star3_loop 
+	
+	post_star3:	
+	jr $ra
+	collision_star1:
+		# blackout star
+		la $t0, stars # stars is an array of 3 addresses
+		lw $t0, 0($t0) # load address of star 1
+		li $t1, 0 # load black
+		sw $t1, 0($t0) # top left
+		sw $t1, 4($t0) # top right
+		sw $t1, 256($t0)
+		sw $t1 260($t0)
+		
+		# update score
+		lw $t0, score
+		la $t1, score
+		addi $t0, $t0, 1
+		sw $t0, 0($t1)
+		jr $ra
+		
+	collision_star2:
+		# blackout star
+		la $t0, stars # stars is an array of 3 addresses
+		lw $t0, 4($t0) # load address of star 2
+		li $t1, 0 # load black
+		sw $t1, 0($t0) # top left
+		sw $t1, 4($t0) # top right
+		sw $t1, 256($t0)
+		sw $t1 260($t0)
+		# update indicator so it doesnt get redrawn in main loop
+		la $t0, star2_indicator
+		li $t1, 1
+		sw $t1, 0($t0)
+		# update score
+		lw $t0, score
+		la $t1, score
+		addi $t0, $t0, 1
+		sw $t0, 0($t1)
+		jr $ra
+		
+	collision_star3:
+		# blackout star
+		la $t0, stars # stars is an array of 3 addresses
+		lw $t0, 8($t0) # load address of star 3
+		li $t1, 0 # load black
+		sw $t1, 0($t0) # top left
+		sw $t1, 4($t0) # top right
+		sw $t1, 256($t0)
+		sw $t1 260($t0)
+		
+		# update score
+		lw $t0, score
+		la $t1, score
+		addi $t0, $t0, 1
+		sw $t0, 0($t1)
+		jr $ra		
+
+draw_score:
+	# indicate the score of the player on the top row
+	# for perfect middle alignment first pixel of second star should be at 128 (center)
+	li $t0, BASE_ADDRESS
+	addi $t0, $t0, 116
+	li $t2, 0xffff00 # load colour yellow
+	lw $t1, score # the current score either 1, 2, or 3
+	beq $t1, 0, end_score
+	beq $t1, 1, score_is_1
+	beq $t1, 2, score_is_2
+	
+	# here score is 3 need to draw 3 stars
+	# draw star 1 at 116 + t0 for best alignment 
+	sw $t2, 0($t0) # top left
+	sw $t2, 4($t0) # top right
+	sw $t2, 256($t0)
+	sw $t2 260($t0)
+	
+	addi $t0, $t0, 12
+	sw $t2, 0($t0) # top left
+	sw $t2, 4($t0) # top right
+	sw $t2, 256($t0)
+	sw $t2 260($t0)
+	
+	addi $t0, $t0, 12
+	sw $t2, 0($t0) # top left
+	sw $t2, 4($t0) # top right
+	sw $t2, 256($t0)
+	sw $t2 260($t0)
+	jr $ra
+	
+	score_is_1:
+		sw $t2, 0($t0) # top left
+		sw $t2, 4($t0) # top right
+		sw $t2, 256($t0)
+		sw $t2 260($t0)
+		jr $ra
+	score_is_2:
+		sw $t2, 0($t0) # top left
+		sw $t2, 4($t0) # top right
+		sw $t2, 256($t0)
+		sw $t2 260($t0)
+	
+		addi $t0, $t0, 12
+		sw $t2, 0($t0) # top left
+		sw $t2, 4($t0) # top right
+		sw $t2, 256($t0)
+		sw $t2 260($t0)
+	end_score:	
+		jr $ra
+
 END:	
+	# print score for testing
+	li $t1, 0xffff00 # testing .data
+	la $t0, stars # load the address of the array
+	lw $t0, 0($t0) # load the address of the first star, the first element of the array, technically a word
+	sw $t1, 0($t0) # store yellow in the first pixel of the first star
+	
+	lw, $t0, score
+	li $v0, 1
+	move $a0, $t0
+	syscall
+	
 	li $v0, 10
 	syscall
 
